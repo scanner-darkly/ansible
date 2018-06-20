@@ -533,32 +533,40 @@ void clock_kria_track( uint8_t trackNum ) {
 	kria_track * track = &k.p[k.pattern].t[trackNum];
 	u8* trackIndex = &kria_track_indices[trackNum];
 
-	if(kria_next_step(trackNum, mDur)) {
-		f32 clock_scale = (clock_deltas[trackNum] * track->tmul[mTr]) / (f32)384.0;
-		f32 uncscaled = (track->dur[pos[trackNum][mDur]]+1) * (track->dur_mul<<2);
-		dur[trackNum] = (u16)(uncscaled * clock_scale);
+	bool trNextStep = kria_next_step(trackNum, mTr);
+	bool isTrigger = track->tr[pos[trackNum][mTr]];
+
+	// if the track isn't in trigger_step mode, or if there is a trigger
+	// THEN we clock the other parameters
+	if ( !k.trigger_steps[trackNum] || isTrigger )
+	{
+		if(kria_next_step(trackNum, mDur)) {
+			f32 clock_scale = (clock_deltas[trackNum] * track->tmul[mTr]) / (f32)384.0;
+			f32 uncscaled = (track->dur[pos[trackNum][mDur]]+1) * (track->dur_mul<<2);
+			dur[trackNum] = (u16)(uncscaled * clock_scale);
+		}
+
+		if(kria_next_step(trackNum, mOct)) {
+			oct[trackNum] = track->oct[pos[trackNum][mOct]];
+		}
+
+		if(kria_next_step(trackNum, mNote)) {
+			note[trackNum] = track->note[pos[trackNum][mNote]];
+		}
+
+		if(kria_next_step(trackNum, mRpt)) {
+			rpt[trackNum] = track->rpt[pos[trackNum][mRpt]];
+		}
+		if(kria_next_step(trackNum, mAltNote)) {
+			alt_note[trackNum] = track->alt_note[pos[trackNum][mAltNote]];
+		}
+		if(kria_next_step(trackNum, mGlide)) {
+			glide[trackNum] = track->glide[pos[trackNum][mGlide]];
+		}
 	}
 
-	if(kria_next_step(trackNum, mOct)) {
-		oct[trackNum] = track->oct[pos[trackNum][mOct]];
-	}
-
-	if(kria_next_step(trackNum, mNote)) {
-		note[trackNum] = track->note[pos[trackNum][mNote]];
-	}
-
-	if(kria_next_step(trackNum, mRpt)) {
-		rpt[trackNum] = track->rpt[pos[trackNum][mRpt]];
-	}
-	if(kria_next_step(trackNum, mAltNote)) {
-		alt_note[trackNum] = track->alt_note[pos[trackNum][mAltNote]];
-	}
-	if(kria_next_step(trackNum, mGlide)) {
-		glide[trackNum] = track->glide[pos[trackNum][mGlide]];
-	}
-
-	if(kria_next_step(trackNum, mTr)) {
-		if( !kria_mutes[trackNum] && track->tr[pos[trackNum][mTr]]) {
+	if(trNextStep && isTrigger) {
+		if( !kria_mutes[trackNum] ) {
 
 			dac_set_slew( trackNum, glide[trackNum] * 20 );
 
@@ -1668,6 +1676,10 @@ void handler_KriaGridKey(s32 data) {
 					{
 						kria_tt_clocked[x] = !kria_tt_clocked[x];
 					}
+					else if ( y==1 && x < 4 )
+					{
+						k.trigger_steps[x] = !k.trigger_steps[x];
+					}
 					else if(x < 8) {
 						if(y > 4)
 							k.p[k.pattern].scale = (y - 5) * 8 + x;
@@ -2300,11 +2312,13 @@ void refresh_kria_glide(void) {
 }
 
 void refresh_kria_scale(void) {
-	// shoehorning my track clocking feature here
+	// shoehorning my track clocking and triggersteps feature here
 	for ( uint8_t i=0; i<4; i++ )
 	{
 		// if teletype clocking is enabled, its brighter
 		monomeLedBuffer[i] = kria_tt_clocked[i] ? L1 : L0;
+		// if triggersteps mode is enabled, its brighter
+		monomeLedBuffer[i+16] = k.trigger_steps[i] ? L1 : L0;
 	}
 
 	// vertical bar dividing the left and right half

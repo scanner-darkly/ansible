@@ -55,6 +55,7 @@ typedef struct {
 	uint8_t meta_len;
 	uint8_t meta_lswap;
 	uint8_t glyph[8];
+	bool trigger_steps[KRIA_NUM_TRACKS];
 } kria_data_t;
 
 typedef struct {
