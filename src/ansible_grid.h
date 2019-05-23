@@ -70,6 +70,8 @@ typedef struct {
 	uint8_t glyph[8];
 } kria_data_t;
 
+extern kria_data_t k;
+
 typedef struct {
 	uint32_t clock_period;
 	uint8_t preset;
@@ -105,6 +107,8 @@ typedef struct {
 	u8 scale;
 	u8 glyph[8];
 } mp_data_t;
+
+extern mp_data_t m;
 
 typedef struct {
 	uint8_t preset;
