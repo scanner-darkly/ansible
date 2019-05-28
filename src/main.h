@@ -79,3 +79,4 @@ void clock_set(uint32_t n);
 void clock_set_tr(uint32_t n, uint8_t phase);
 void load_flash_state(void);
 void flash_unfresh(void);
+void ii_ansible(uint8_t* d, uint8_t len);

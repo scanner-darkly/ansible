@@ -96,15 +96,15 @@ static void handler_FrontLong(s32 data);
 static void handler_MidiConnect(s32 data);
 static void handler_MidiDisconnect(s32 data);
 
-static void ii_null(uint8_t *d, uint8_t l);
-
 u8 flash_is_fresh(void);
 void flash_write(void);
 void flash_read(void);
 void state_write(void);
 void state_read(void);
 
-
+void ii_ansible(uint8_t* d, uint8_t len);
+static ansible_mode_t ii_ansible_mode_for_cmd(uint8_t cmd);
+static uint8_t ii_ansible_cmd_for_mode(ansible_mode_t mode);
 ////////////////////////////////////////////////////////////////////////////////
 // timers
 
@@ -373,8 +373,6 @@ static void handler_KeyTimer(s32 data) {
 		arc_keytimer();
 }
 
-
-
 // assign default event handlers
 static inline void assign_main_event_handlers(void) {
 	app_event_handlers[ kEventFront ]	= &handler_Front;
@@ -493,8 +491,62 @@ void load_flash_state(void) {
 	init_i2c_slave(f.state.i2c_addr);
 }
 
-static void ii_null(uint8_t *d, uint8_t l) {
-	print_dbg("\r\nii/null");
+void ii_ansible(uint8_t* d, uint8_t len) {
+	// print_dbg("\r\nii/ansible (");
+	// print_dbg_ulong(len);
+	// print_dbg(") ");
+	// for(int i=0;i<len;i++) {
+	// 	print_dbg_ulong(d[i]);
+	// 	print_dbg(" ");
+	// }
+
+	if (len < 1) {
+		return;
+	}
+	switch (d[0]) {
+	case II_ANSIBLE_APP:
+		if ( len >= 2 ) {
+			ansible_mode_t next_mode = ii_ansible_mode_for_cmd(d[1]);
+			if (next_mode < 0) {
+				break;
+			}
+			set_mode(next_mode);
+		}
+		break;
+	case II_ANSIBLE_APP + II_GET: {
+		uint8_t cmd = ii_ansible_cmd_for_mode(ansible_mode);
+		ii_tx_queue(cmd);
+		break;
+	}
+	default:
+		break;
+	}
+}
+
+static ansible_mode_t ii_ansible_mode_for_cmd(uint8_t cmd) {
+	switch (cmd) {
+	case 0:  return mArcLevels;
+	case 1:  return mArcCycles;
+        case 2:  return mGridKria;
+	case 3:  return mGridMP;
+	case 4:  return mMidiStandard;
+	case 5:  return mMidiArp;
+	case 6:  return mTT;
+	default: return -1;
+	}
+}
+
+static uint8_t ii_ansible_cmd_for_mode(ansible_mode_t mode) {
+	switch (mode) {
+	case mArcLevels:    return 0;
+	case mArcCycles:    return 1;
+        case mGridKria:     return 2;
+	case mGridMP:       return 3;
+	case mMidiStandard: return 4;
+	case mMidiArp:      return 5;
+	case mTT:           return 6;
+	default:            return -1;
+	}
 }
 
 
@@ -544,7 +596,7 @@ int main(void)
 	cpu_irq_enable();
 
 	load_flash_state();
-	process_ii = &ii_null;
+	process_ii = &ii_ansible;
 
 	clr_tr(TR1);
 	clr_tr(TR2);
