@@ -152,7 +152,7 @@ json_docdef_t ansible_app_docdefs[] = {
 		.write = json_write_object,
 		.state = &ansible_app_object_state[0],
 		.params = &((json_read_object_params_t) {
-			.docdef_ct = 8,
+			.docdef_ct = 9,
 			.docdefs = ((json_docdef_t[]) {
 				{
 					.name = "clock_period",
@@ -161,6 +161,15 @@ json_docdef_t ansible_app_docdefs[] = {
 					.params = &((json_read_scalar_params_t) {
 						.dst_size = sizeof_field(nvram_data_t, kria_state.clock_period),
 						.dst_offset = offsetof(nvram_data_t, kria_state.clock_period),
+					}),
+				},
+				{
+					.name = "sync_mode",
+					.read = json_read_scalar,
+					.write = json_write_number,
+					.params = &((json_read_scalar_params_t) {
+						.dst_size = sizeof_field(nvram_data_t, kria_state.sync_mode),
+						.dst_offset = offsetof(nvram_data_t, kria_state.sync_mode),
 					}),
 				},
 				{
