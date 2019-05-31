@@ -50,6 +50,7 @@ class PresetSchema(ABC):
             field = dict(self.ffi.typeof(state).fields)[struct_name]
         except AttributeError:
             field = None
+        print('{} - {}'.format(json_name, struct_name))
         val = getattr(state, struct_name)
         return (json_name, mu(val, field))
 
