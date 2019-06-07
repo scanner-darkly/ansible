@@ -1308,8 +1308,7 @@ void ii_kria(uint8_t *d, uint8_t l) {
 			ii_tx_queue(ii_kr_cmd_for_mode(k_mode));
 			break;
 		case II_KR_CUE:
-			if (!meta
-			 && l >= 2) {
+			if (!meta && l >= 2) {
 				cue_pat_next = d[1] + 1;
 				cue = true;
 			}
@@ -1318,6 +1317,16 @@ void ii_kria(uint8_t *d, uint8_t l) {
 			ii_tx_queue(cue_pat_next - 1);
 			break;
 		}
+		case II_KR_DIR:
+			if (l >= 3 && d[2] <= krDirRandom) {
+				k.p[k.pattern].t[d[1]-1].direction = d[2];
+			}
+			break;
+		case II_KR_DIR + II_GET:
+			if (l >= 2) {
+				ii_tx_queue(k.p[k.pattern].t[d[1] - 1].direction);
+			}
+			break;
 		default:
 			ii_grid(d, l);
 			ii_ansible(d, l);
