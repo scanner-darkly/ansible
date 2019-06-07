@@ -461,6 +461,15 @@ json_docdef_t ansible_app_docdefs[] = {
 																					.dst_offset = offsetof(nvram_data_t, kria_state.k[0].p[0].t[0].tt_clocked),
 																				}),
 																			},
+																			{
+																				.name = "trigger_steps",
+																				.read = json_read_scalar,
+																				.write = json_write_bool,
+																				.params = &((json_read_scalar_params_t) {
+																					.dst_size = sizeof_field(nvram_data_t, kria_state.k[0].p[0].t[0].trigger_steps),
+																					.dst_offset = offsetof(nvram_data_t, kria_state.k[0].p[0].t[0].trigger_steps),
+																				}),
+																			},
 																		}),
 																	}),
 																}),

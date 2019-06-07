@@ -469,6 +469,7 @@ void default_kria() {
 	k.p[0].t[0].dur_mul = 4;
 	k.p[0].t[0].direction = krDirForward;
 	k.p[0].t[0].tt_clocked = false;
+	k.p[0].t[0].trigger_steps = false;
 	memset(k.p[0].t[0].advancing, 1, KRIA_NUM_PARAMS);
 	memset(k.p[0].t[0].lstart, 0, KRIA_NUM_PARAMS);
 	memset(k.p[0].t[0].lend, 5, KRIA_NUM_PARAMS);
@@ -1513,29 +1514,22 @@ void handler_KriaGridKey(s32 data) {
 		if(z) {
 			if(x<8 && y<7) {
 				note_sync ^= 1;
-				if(loop_sync == 0)
-					loop_sync = 1;
 				flashc_memset8((void*)&(f.kria_state.note_sync), note_sync, 1, true);
-				flashc_memset8((void*)&(f.kria_state.loop_sync), loop_sync, 1, true);
 			}
 			else if(y == 3) {
 				if(loop_sync == 1) {
 					loop_sync = 0;
-					note_sync = 0;
 				}
 				else loop_sync = 1;
 
-				flashc_memset8((void*)&(f.kria_state.note_sync), note_sync, 1, true);
 				flashc_memset8((void*)&(f.kria_state.loop_sync), loop_sync, 1, true);
 			}
 			else if(y == 5) {
 				if(loop_sync == 2) {
 					loop_sync = 0;
-					note_sync = 0;
 				}
 				else loop_sync = 2;
 
-				flashc_memset8((void*)&(f.kria_state.note_sync), note_sync, 1, true);
 				flashc_memset8((void*)&(f.kria_state.loop_sync), loop_sync, 1, true);
 			}
 			else if (y == 7) {
@@ -1637,6 +1631,10 @@ void handler_KriaGridKey(s32 data) {
 							loop_last = x;
 							update_loop_start(loop_edit, loop_first, mTr);
 							update_loop_end(loop_edit, loop_last, mTr);
+							if (note_sync) {
+								update_loop_start(loop_edit, loop_first, mNote);
+								update_loop_end(loop_edit, loop_last, mNote);
+							}
 						}
 
 						loop_count++;
@@ -1646,12 +1644,13 @@ void handler_KriaGridKey(s32 data) {
 
 						if(loop_count == 0) {
 							if(loop_last == -1) {
+								update_loop_start(loop_edit, loop_first, mTr);
 								if(loop_first == k.p[k.pattern].t[loop_edit].lstart[mTr]) {
-									update_loop_start(loop_edit, loop_first, mTr);
 									update_loop_end(loop_edit, loop_first, mTr);
+									if (note_sync) {
+										update_loop_end(loop_edit, loop_first, mNote);
+									}
 								}
-								else
-									update_loop_start(loop_edit, loop_first, mTr);
 							}
 							monomeFrameDirty++;
 						}
@@ -1700,6 +1699,10 @@ void handler_KriaGridKey(s32 data) {
 							loop_last = x;
 							update_loop_start(track, loop_first, mNote);
 							update_loop_end(track, loop_last, mNote);
+							if (note_sync) {
+								update_loop_start(track, loop_first, mTr);
+								update_loop_end(track, loop_last, mTr);
+							}
 						}
 
 						loop_count++;
@@ -1709,12 +1712,16 @@ void handler_KriaGridKey(s32 data) {
 
 						if(loop_count == 0) {
 							if(loop_last == -1) {
-								if(loop_first == k.p[k.pattern].t[track].lstart[mNote]) {
-									update_loop_start(track, loop_first, mNote);
-									update_loop_end(track, loop_first, mNote);
+								update_loop_start(track, loop_first, mNote);
+								if (note_sync) {
+									update_loop_start(track, loop_first, mTr);
 								}
-								else
-									update_loop_start(track, loop_first, mNote);
+								if(loop_first == k.p[k.pattern].t[track].lstart[mNote]) {
+									update_loop_end(track, loop_first, mNote);
+									if (note_sync) {
+										update_loop_end(track, loop_first, mTr);
+									}
+								}
 							}
 							monomeFrameDirty++;
 						}
@@ -2041,7 +2048,7 @@ void handler_KriaGridKey(s32 data) {
 				break;
 			case mScale:
 				if(z) {
-					if ( y < 4 && x < 6 ) {
+					if ( y < 4 && x <= 7 ) {
 						if (x == 0){
 						        k.p[k.pattern].t[y].tt_clocked = !k.p[k.pattern].t[y].tt_clocked;
 						}
@@ -2729,7 +2736,7 @@ void refresh_kria_scale(void) {
 
 		// show selected direction
 		for ( uint8_t x=3; x<=7; x++ ) {
-			monomeLedBuffer[x+16*y] = k.p[k.pattern].t[y].direction == x - 3 ? 5 : 3;
+			monomeLedBuffer[x+16*y] = (k.p[k.pattern].t[y].direction == (x - 3)) ? 4 : 2;
 		}
 	}
 
