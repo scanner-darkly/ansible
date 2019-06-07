@@ -5051,5 +5051,9 @@ void ii_es(uint8_t *data, uint8_t l) {
             }
             monomeFrameDirty++;
             break;
+        default:
+            ii_grid(data, l);
+            ii_ansible(data, l);
+            break;
     }
 }
