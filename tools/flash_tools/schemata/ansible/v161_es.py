@@ -253,7 +253,7 @@ typedef enum {
 	eVoiceMono,
 	eVoiceMulti,
 	eVoiceFixed,
-	
+
 	eVoiceMAX
 } voicing_mode;
 

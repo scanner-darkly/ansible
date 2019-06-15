@@ -486,6 +486,8 @@ void clock_set_tr(uint32_t n, uint8_t phase) {
 	timer_manual(&clockTimer);
 }
 
+///////
+// global ii handlers
 void load_flash_state(void) {
 	init_levels();
 	init_cycles();
@@ -511,6 +513,7 @@ void ii_ansible(uint8_t* d, uint8_t len) {
 	if (len < 1) {
 		return;
 	}
+
 	switch (d[0]) {
 	case II_ANSIBLE_APP:
 		if ( len >= 2 ) {
@@ -537,9 +540,10 @@ static ansible_mode_t ii_ansible_mode_for_cmd(uint8_t cmd) {
 	case 1:  return mArcCycles;
         case 2:  return mGridKria;
 	case 3:  return mGridMP;
-	case 4:  return mMidiStandard;
-	case 5:  return mMidiArp;
-	case 6:  return mTT;
+	case 4:  return mGridES;
+	case 5:  return mMidiStandard;
+	case 6:  return mMidiArp;
+	case 7:  return mTT;
 	default: return -1;
 	}
 }
@@ -550,9 +554,10 @@ static uint8_t ii_ansible_cmd_for_mode(ansible_mode_t mode) {
 	case mArcCycles:    return 1;
         case mGridKria:     return 2;
 	case mGridMP:       return 3;
-	case mMidiStandard: return 4;
-	case mMidiArp:      return 5;
-	case mTT:           return 6;
+	case mGridES:       return 4;
+	case mMidiStandard: return 5;
+	case mMidiArp:      return 6;
+	case mTT:           return 7;
 	default:            return -1;
 	}
 }
