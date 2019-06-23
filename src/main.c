@@ -41,6 +41,7 @@ usb flash
 // libavr32
 #include "types.h"
 #include "events.h"
+#include "libfixmath/fix16.h"
 #include "i2c.h"
 #include "init_ansible.h"
 #include "init_common.h"
@@ -453,28 +454,30 @@ void flash_read(void) {
 
 void default_tuning(void) {
 	for (uint8_t i = 0; i < 4; i++) {
-		flashc_memcpy((void *)&f.tuning_table[i], ET, sizeof(ET), true);
+		for (uint8_t j = 0; j < 120; j++) {
+			tuning_table[i][j] = ET[j] << 2;
+		}
 	}
+	flashc_memcpy((void *)f.tuning_table, tuning_table, sizeof(tuning_table), true);
 }
 
 void init_tuning(void) {
-	for (uint8_t i = 0; i < 4; i++) {
-		memcpy((void*)&tuning_table[i], &f.tuning_table[i], 120);
-	}
-	/* memcpy((void *)&tuning_table, &f.tuning_table, sizeof(tuning_table)); */
+	memcpy((void *)&tuning_table, &f.tuning_table, sizeof(tuning_table));
 }
 
 void fit_tuning(void) {
 	for (uint8_t i = 0; i < 4; i++) {
-		float step = 0.0;
+		fix16_t step = 0;
 		for (uint8_t j = 0; j < 10; j++) {
-			float acc = tuning_table[i][j*12];
+			fix16_t acc = fix16_from_int(tuning_table[i][j*12]);
 			if (j < 9) {
-				step = (tuning_table[i][(j+1)*12] - tuning_table[i][j*12]) / 12.0;
+				step = fix16_div(
+					fix16_from_int(tuning_table[i][(j+1)*12] - tuning_table[i][j*12]),
+					fix16_from_int(12));
 			}
 			for (uint8_t k = j*12; k < (j+1)*12; k++) {
-				tuning_table[i][k] = acc;
-				acc += step;
+				tuning_table[i][k] = fix16_to_int(acc);
+				acc = fix16_add(acc, step);
 			}
 		}
 	}
