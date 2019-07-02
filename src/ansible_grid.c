@@ -30,6 +30,11 @@
 
 bool preset_mode;
 uint8_t preset;
+static void preset_mode_exit(void);
+
+bool follower_select;
+bool mod_follower;
+uint8_t follower;
 
 u8 grid_varibrightness = 16;
 u8 key_count = 0;
@@ -41,6 +46,7 @@ bool clock_external;
 bool view_clock;
 bool view_config;
 bool view_tuning;
+bool mod_tuning;
 uint32_t clock_period;
 uint8_t clock_count;
 uint8_t clock_mul;
@@ -138,7 +144,7 @@ void set_mode_grid() {
 		app_event_handlers[kEventMonomeRefresh] = &handler_KriaRefresh;
 		clock = &clock_kria;
 		clock_set(clock_period);
-		init_i2c_slave(II_KR_ADDR);
+		if (!leader_mode) init_i2c_slave(II_KR_ADDR);
 		process_ii = &ii_kria;
 		resume_kria();
 		update_leds(1);
@@ -152,7 +158,7 @@ void set_mode_grid() {
 		app_event_handlers[kEventMonomeRefresh] = &handler_MPRefresh;
 		clock = &clock_mp;
 		clock_set(clock_period);
-		init_i2c_slave(II_MP_ADDR);
+		if (!leader_mode) init_i2c_slave(II_MP_ADDR);
 		process_ii = &ii_mp;
 		resume_mp();
 		update_leds(2);
@@ -166,7 +172,7 @@ void set_mode_grid() {
 		app_event_handlers[kEventMonomeRefresh] = &handler_ESRefresh;
 		clock = &clock_null;
 		clock_set(clock_period);
-		init_i2c_slave(ES);
+		if (!leader_mode) init_i2c_slave(ES);
 		process_ii = &ii_es;
 		resume_es();
 		update_leds(3);
@@ -184,11 +190,15 @@ void set_mode_grid() {
 	flashc_memset32((void*)&(f.state.grid_mode), ansible_mode, 4, true);
 }
 
+static void preset_mode_exit(void) {
+	 // print_dbg("\r\n> PRESET EXIT");
+	preset_mode = false;
+	flashc_memcpy((void*)f.state.followers, followers, sizeof(followers), true);
+}
 
 void handler_GridFrontShort(s32 data) {
 	if(preset_mode) {
-		// print_dbg("\r\n> PRESET EXIT");
-		preset_mode = false;
+		preset_mode_exit();
 
 		switch (ansible_mode) {
 			case mGridKria:
@@ -246,26 +256,50 @@ void refresh_preset(void) {
 
 	monomeLedBuffer[preset * 16] = 11;
 
-	switch(ansible_mode) {
-	case mGridMP:
-		for(i1=0;i1<8;i1++)
-			for(i2=0;i2<8;i2++)
-				if(m.glyph[i1] & (1<<i2))
-					monomeLedBuffer[i1*16+i2+8] = 9;
-		break;
-	case mGridKria:
-		for(i1=0;i1<8;i1++)
-			for(i2=0;i2<8;i2++)
-				if(k.glyph[i1] & (1<<i2))
-					monomeLedBuffer[i1*16+i2+8] = 9;
-		break;
-	case mGridES:
-		for(i1=0;i1<8;i1++)
-			for(i2=0;i2<8;i2++)
-				if(e.glyph[i1] & (1<<i2))
-					monomeLedBuffer[i1*16+i2+8] = 9;
-		break;
-	default: break;
+	for (uint8_t i = 0; i < I2C_FOLLOWER_COUNT; i++) {
+		if (follower_select) {
+			monomeLedBuffer[2 + (2 + i)*16] = i == follower ? L1 : L0;
+			monomeLedBuffer[4 + (2 + i)*16] = followers[i].cv_extra ? L1 : L0;
+		}
+		else {
+			monomeLedBuffer[2 + (2 + i)*16] = followers[i].active ? L1 : L0;
+		}
+	}
+	monomeLedBuffer[2 + R7] = mod_follower ? L1 : L0;
+
+	if (follower_select) {
+		for (uint8_t i = 0; i < 8; i++) {
+
+			monomeLedBuffer[i*16 + 8 ] = (followers[follower].addr & (1 << (7 - i))) ? L1 : L0;
+			monomeLedBuffer[i*16 + 9 ] = (followers[follower].tr_cmd & (1 << (7 - i))) ? L1 : L0;
+			monomeLedBuffer[i*16 + 10] = (followers[follower].cv_cmd & (1 << (7 - i))) ? L1 : L0;
+			monomeLedBuffer[i*16 + 11] = (followers[follower].cv_slew_cmd & (1 << (7 - i))) ? L1 : L0;
+			monomeLedBuffer[i*16 + 12] = (followers[follower].init_cmd & (1 << (7 - i))) ? L1 : L0;
+			monomeLedBuffer[i*16 + 13] = (followers[follower].vol_cmd & (1 << (7 - i))) ? L1 : L0;
+		}
+	}
+	else {
+		switch(ansible_mode) {
+		case mGridMP:
+			for(i1=0;i1<8;i1++)
+				for(i2=0;i2<8;i2++)
+					if(m.glyph[i1] & (1<<i2))
+						monomeLedBuffer[i1*16+i2+8] = 9;
+			break;
+		case mGridKria:
+			for(i1=0;i1<8;i1++)
+				for(i2=0;i2<8;i2++)
+					if(k.glyph[i1] & (1<<i2))
+						monomeLedBuffer[i1*16+i2+8] = 9;
+			break;
+		case mGridES:
+			for(i1=0;i1<8;i1++)
+				for(i2=0;i2<8;i2++)
+					if(e.glyph[i1] & (1<<i2))
+						monomeLedBuffer[i1*16+i2+8] = 9;
+			break;
+		default: break;
+		}
 	}
 
 	monome_set_quadrant_flag(0);
@@ -284,6 +318,8 @@ void refresh_grid_tuning(void) {
 			monomeLedBuffer[i*16 + 2 + tuning_octave_offset[tuning_track]] += 4;
 		}
 	}
+
+	monomeLedBuffer[R4] = mod_tuning ? L1 : L0;
 
 	memset(monomeLedBuffer + R5, L0, 10);
 	monomeLedBuffer[R5 + tuning_octave] = L1;
@@ -345,7 +381,7 @@ void grid_keytimer(void) {
 
 						flashc_memcpy((void *)&f.scale, &scale_data, sizeof(scale_data), true);
 
-						preset_mode = false;
+						preset_mode_exit();
 						grid_refresh = &refresh_mp;
 						break;
 
@@ -358,7 +394,7 @@ void grid_keytimer(void) {
 
 						flashc_memcpy((void *)&f.scale, &scale_data, sizeof(scale_data), true);
 
-						preset_mode = false;
+						preset_mode_exit();
 						grid_refresh = &refresh_kria;
 						break;
 
@@ -367,7 +403,7 @@ void grid_keytimer(void) {
 						flashc_memcpy((void *)&f.es_state.e[preset], &e, sizeof(e), true);
 						flashc_memcpy((void *)&f.scale, &scale_data, sizeof(scale_data), true);
 
-						preset_mode = false;
+						preset_mode_exit();
 						grid_refresh = &refresh_es;
 						break;
 
@@ -653,10 +689,10 @@ void resume_kria() {
 		last_ticks[i] = get_ticks();
 	}
 
-	dac_set_slew(0,0);
-	dac_set_slew(1,0);
-	dac_set_slew(2,0);
-	dac_set_slew(3,0);
+	set_cv_slew(0,0);
+	set_cv_slew(1,0);
+	set_cv_slew(2,0);
+	set_cv_slew(3,0);
 
 	clr_tr(TR1);
 	clr_tr(TR2);
@@ -879,6 +915,7 @@ void clock_kria_note(kria_track* track, uint8_t trackNum) {
 		f32 clock_scale = (clock_deltas[trackNum] * track->tmul[mTr]) / (f32)384.0;
 		f32 unscaled = (track->dur[pos[trackNum][mDur]]+1) * (track->dur_mul<<2);
 		dur[trackNum] = (u16)(unscaled * clock_scale);
+		cv_extra[trackNum] = (u16)unscaled << 5;
 	}
 	if(kria_next_step(trackNum, mOct)) {
 		oct[trackNum] = sum_clip(track->octshift, track->oct[pos[trackNum][mOct]], 5);
@@ -897,7 +934,7 @@ void clock_kria_note(kria_track* track, uint8_t trackNum) {
 static void kria_set_note(uint8_t trackNum) {
 	u8 noteInScale = (note[trackNum] + alt_note[trackNum]) % 7; // combine both note params
 	u8 octaveBump = (note[trackNum] + alt_note[trackNum]) / 7; // if it wrapped around the octave, bump it
-	dac_set_value(
+	set_cv(
 		trackNum,
 		tuning_table[trackNum][
 			(int)cur_scale[noteInScale] +
@@ -935,7 +972,7 @@ void clock_kria_track( uint8_t trackNum ) {
 	if(trNextStep && isTrigger) {
 		if( !kria_mutes[trackNum] ) {
 
-			dac_set_slew( trackNum, glide[trackNum] * 20 );
+			set_cv_slew( trackNum, glide[trackNum] * 20 );
 
 			activeRpt[trackNum] = rpt[trackNum];
 
@@ -1590,7 +1627,7 @@ void handler_KriaGridKey(s32 data) {
 						init_kria();
 						resume_kria();
 
-						preset_mode = false;
+						preset_mode_exit();
 						grid_refresh = &refresh_kria;
 
 						// print_dbg("\r\npreset RECALL:");
@@ -1629,11 +1666,57 @@ void handler_KriaGridKey(s32 data) {
 
 	// PRESET SCREEN
 	if(preset_mode) {
-		// glyph magic
-		if(z && x > 7) {
-			k.glyph[y] ^= 1<<(x-8);
+		if(z) {
+			if (x == 2 && y == 7) {
+				if (follower_select) {
+					follower_select = false;
+				} else {
+					mod_follower = true;
+				}
+			}
+			if (follower_select) {
+				if (x == 2) {
+					if (y >= 2 && y <= 5) {
+						follower = y - 2;
+					}
+				}
+				if (x == 4) {
+					if (y >= 2 && y <= 5) {
+						followers[y - 2].cv_extra = !followers[y - 2].cv_extra;
+					}
+				}
+				switch (x) {
+				case  8: followers[follower].addr ^= 1 << (7 - y); break;
+				case  9: followers[follower].tr_cmd ^= 1 << (7 - y); break;
+				case 10: followers[follower].cv_cmd ^= 1 << (7 - y); break;
+				case 11: followers[follower].cv_slew_cmd ^= 1 << (7 - y); break;
+				case 12: followers[follower].init_cmd ^= 1 << (7 - y); break;
+				case 13: followers[follower].vol_cmd ^= 1 << (7 - y); break;
+				default: break;
+				}
+			}
+			else {
+				// glyph magic
+				if (x > 7) {
+					k.glyph[y] ^= 1<<(x-8);
+				}
+				if (x == 2 && y >= 2 && y <= 5) {
+					if (mod_follower) {
+						follower = y - 2;
+						follower_select = true;
+					}
+					else {
+						toggle_follower(y - 2);
+					}
+				}
+			}
 
 			monomeFrameDirty++;
+		}
+		else {
+			if (x == 2 && y == 7) {
+				mod_follower = false;
+			}
 		}
 	}
 	else if(view_clock) {
@@ -1691,7 +1774,7 @@ void handler_KriaGridKey(s32 data) {
 			}
 
 
-			if (x <= 3) {
+			if (y >= 4 && x <= 3) {
 				note_div_sync ^= 1;
 				flashc_memset8((void*)&(f.kria_state.note_div_sync), note_div_sync, sizeof(note_div_sync), true);
 			}
@@ -1766,7 +1849,10 @@ void handler_KriaGridKey(s32 data) {
 	}
 	else if(view_tuning) {
 		if(z) {
-			if (y <= 4) {
+			if (y == 4 && x == 0) {
+			   	mod_tuning = true;
+		        }
+			if (y <= 3) {
 				if (x == 0) {
 			  		if (tuning_note_on[y]) {
 						tuning_note_on[y] = false;
@@ -1824,25 +1910,66 @@ void handler_KriaGridKey(s32 data) {
 			}
 			else if (y == 7) {
 				int tuning_slot = (int)(tuning_octave * 12) + tuning_octave_offset[tuning_track];
-
 				if (x >= 8) {
-					tuning_table[tuning_track][tuning_slot] = sum_clip(
-						tuning_table[tuning_track][tuning_slot],
-						1 << (x - 8),
-					        DAC_10V);
+					if (mod_tuning) {
+						for (uint8_t t = 0; t < 4; t++) {
+							for (uint8_t s = 0; s < 120; s++) {
+								tuning_table[t][s] = sum_clip(
+									tuning_table[t][s],
+									1 << (x - 8),
+									DAC_10V);
+							}
+						}
+					}
+					else {
+						tuning_table[tuning_track][tuning_slot] = sum_clip(
+							tuning_table[tuning_track][tuning_slot],
+							1 << (x - 8),
+							DAC_10V);
+					}
 				} else {
-					tuning_table[tuning_track][tuning_slot] = sum_clip(
-						tuning_table[tuning_track][tuning_slot],
-						- (1 << (8 - x)),
-					        DAC_10V);
+					if (mod_tuning) {
+						for (uint8_t t = 0; t < 4; t++) {
+							for (uint8_t s = 0; s < 120; s++) {
+								tuning_table[t][s] = sum_clip(
+									tuning_table[t][s],
+									- (1 << (8 - x)),
+									DAC_10V);
+							}
+						}
+					}
+					else {
+						tuning_table[tuning_track][tuning_slot] = sum_clip(
+							tuning_table[tuning_track][tuning_slot],
+							- (1 << (8 - x)),
+							DAC_10V);
+					}
 				}
-				dac_set_value_noslew(
-					tuning_track,
-					tuning_table[tuning_track][
-					        (int)(tuning_octave * 12) +
-						tuning_octave_offset[tuning_track]
-					]);
+
+				if (mod_tuning) {
+					for (uint8_t t = 0; t < 4; t++) {
+						dac_set_value_noslew(
+							t,
+							tuning_table[t][
+							        (int)(tuning_octave * 12) +
+								tuning_octave_offset[t]
+							]);
+					}
+				}
+				else {
+					dac_set_value_noslew(
+						tuning_track,
+						tuning_table[tuning_track][
+						        (int)(tuning_octave * 12) +
+							tuning_octave_offset[tuning_track]
+						]);
+				}
 			}
+		}
+		else {
+			if (y == 4 && x == 0) {
+			   	mod_tuning = false;
+		        }
 		}
 	}
 	// NORMAL
@@ -2653,6 +2780,8 @@ void handler_KriaKey(s32 data) {
 	case 3:
 		if (view_tuning) {
 			view_tuning = false;
+			view_config = false;
+			view_clock = false;
 			resume_kria();
 			break;
 		}
@@ -3336,10 +3465,10 @@ void resume_mp() {
 	else
 		clock = &clock_mp;
 
-	dac_set_slew(0,0);
-	dac_set_slew(1,0);
-	dac_set_slew(2,0);
-	dac_set_slew(3,0);
+	set_cv_slew(0,0);
+	set_cv_slew(1,0);
+	set_cv_slew(2,0);
+	set_cv_slew(3,0);
 
 	clr_tr(TR1);
 	clr_tr(TR2);
@@ -3549,13 +3678,13 @@ void mp_note_on(uint8_t n) {
 			if(n < 4)
 				set_tr(TR1 + n);
 			else
-				dac_set_value(n-4, DAC_10V);
+				set_cv(n-4, DAC_10V);
 		break;
 	case MP_1V:
 		if(mp_clock_count < 1) {
 			mp_clock_count++;
 			note_now[0] = n;
-			dac_set_value(0, tuning_table[0][(int)cur_scale[7-n] + scale_adj[7-n]]);
+			set_cv(0, tuning_table[0][(int)cur_scale[7-n] + scale_adj[7-n]]);
 			set_tr(TR1);
 		}
 		break;
@@ -3564,7 +3693,7 @@ void mp_note_on(uint8_t n) {
 			mp_clock_count++;
 			w = get_note_slot(2);
 			note_now[w] = n;
-			dac_set_value(w, tuning_table[w][(int)cur_scale[7-n] + scale_adj[7-n]]);
+			set_cv(w, tuning_table[w][(int)cur_scale[7-n] + scale_adj[7-n]]);
 			set_tr(TR1 + w);
 		}
 		break;
@@ -3573,7 +3702,7 @@ void mp_note_on(uint8_t n) {
 			mp_clock_count++;
 			w = get_note_slot(4);
 			note_now[w] = n;
-			dac_set_value(w, tuning_table[w][(int)cur_scale[7-n] + scale_adj[7-n]]);
+			set_cv(w, tuning_table[w][(int)cur_scale[7-n] + scale_adj[7-n]]);
 			set_tr(TR1 + w);
 		}
 		break;
@@ -3590,7 +3719,7 @@ void mp_note_off(uint8_t n) {
 			if(n < 4)
 				clr_tr(TR1 + n);
 			else
-				dac_set_value(n-4, 0);
+				set_cv(n-4, 0);
 		break;
 	case MP_1V:
 		if(note_now[0] == n) {
@@ -3746,7 +3875,7 @@ void handler_MPGridKey(s32 data) {
 						flashc_memset8((void*)&(f.mp_state.preset), preset, 1, true);
 						init_mp();
 
-						preset_mode = false;
+						preset_mode_exit();
 						grid_refresh = &refresh_mp;
 
 						// print_dbg("\r\npreset RECALL:");
@@ -4393,7 +4522,7 @@ static void es_note_on(s8 x, s8 y, u8 from_pattern, u16 timer, u8 voices) {
         note_index = 0;
     else if (note_index > 119)
         note_index = 119;
-    dac_set_value_noslew(note, tuning_table[note][note_index]);
+    set_cv(note, tuning_table[note][note_index]);
     dac_update_now();
     set_tr(TR1 + note);
 
@@ -4775,7 +4904,7 @@ void resume_es(void) {
     clock = &clock_null;
 
     for (u8 i = 0; i < 4; i++) {
-        dac_set_slew(i, 0);
+        set_cv_slew(i, 0);
         clr_tr(TR1 + i);
         es_notes[i].active = 0;
     }
