@@ -251,15 +251,15 @@ void refresh_preset(void) {
 
 	memset(monomeLedBuffer,0,128);
 
-	for(i1=0;i1<128;i1++)
-		monomeLedBuffer[i1] = 0;
+	if (!follower_select) {
+		monomeLedBuffer[preset * 16] = 11;
+	}
 
-	monomeLedBuffer[preset * 16] = 11;
-
-	for (uint8_t i = 0; i < I2C_FOLLOWER_COUNT; i++) {
+	for (uint8_t i = 0; i < 4; i++) {
 		if (follower_select) {
 			monomeLedBuffer[2 + (2 + i)*16] = i == follower ? L1 : L0;
-			monomeLedBuffer[4 + (2 + i)*16] = followers[i].cv_extra ? L1 : L0;
+			monomeLedBuffer[4 + (2 + i)*16] = (followers[follower].track_en & (1 << i)) ? L1 : L0;
+			monomeLedBuffer[7 + (2 + i)*16] = followers[i].cv_extra ? L1 : L0;
 		}
 		else {
 			monomeLedBuffer[2 + (2 + i)*16] = followers[i].active ? L1 : L0;
@@ -268,8 +268,10 @@ void refresh_preset(void) {
 	monomeLedBuffer[2 + R7] = mod_follower ? L1 : L0;
 
 	if (follower_select) {
-		for (uint8_t i = 0; i < 8; i++) {
+		memset(monomeLedBuffer, L0, 5);
+		monomeLedBuffer[followers[follower].oct - 3] = L1;
 
+		for (uint8_t i = 0; i < 8; i++) {
 			monomeLedBuffer[i*16 + 8 ] = (followers[follower].addr & (1 << (7 - i))) ? L1 : L0;
 			monomeLedBuffer[i*16 + 9 ] = (followers[follower].tr_cmd & (1 << (7 - i))) ? L1 : L0;
 			monomeLedBuffer[i*16 + 10] = (followers[follower].cv_cmd & (1 << (7 - i))) ? L1 : L0;
@@ -367,7 +369,8 @@ void grid_keytimer(void) {
 			uint8_t x = held_keys[i1] % 16;
 			uint8_t y = held_keys[i1] / 16;
 			if(preset_mode == 1) {
-				if(x == 0) {
+				if(x == 0 && !follower_select) {
+
 					preset = y;
 
 					// WRITE PRESET
@@ -1611,7 +1614,7 @@ void handler_KriaGridKey(s32 data) {
 		if(key_times[index] > 0) {
 			// PRESET MODE FAST PRESS DETECT
 			if(preset_mode == 1) {
-				if(x == 0) {
+				if(x == 0 && !follower_select) {
 					if(y != preset) {
 						preset = y;
 
@@ -1675,24 +1678,30 @@ void handler_KriaGridKey(s32 data) {
 				}
 			}
 			if (follower_select) {
-				if (x == 2) {
-					if (y >= 2 && y <= 5) {
+				if (y == 0 && x <= 4) {
+					followers[follower].oct = x + 3;
+				}
+				if (y >= 2 && y <= 5) {
+					if (x == 2) {
 						follower = y - 2;
 					}
-				}
-				if (x == 4) {
-					if (y >= 2 && y <= 5) {
+					if (x == 4) {
+						followers[follower].track_en ^= 1 << (y - 2);
+					}
+					if (x == 7) {
 						followers[y - 2].cv_extra = !followers[y - 2].cv_extra;
 					}
 				}
-				switch (x) {
-				case  8: followers[follower].addr ^= 1 << (7 - y); break;
-				case  9: followers[follower].tr_cmd ^= 1 << (7 - y); break;
-				case 10: followers[follower].cv_cmd ^= 1 << (7 - y); break;
-				case 11: followers[follower].cv_slew_cmd ^= 1 << (7 - y); break;
-				case 12: followers[follower].init_cmd ^= 1 << (7 - y); break;
-				case 13: followers[follower].vol_cmd ^= 1 << (7 - y); break;
-				default: break;
+				if (x >= 8) {
+					switch (x) {
+					case  8: followers[follower].addr ^= 1 << (7 - y); break;
+					case  9: followers[follower].tr_cmd ^= 1 << (7 - y); break;
+					case 10: followers[follower].cv_cmd ^= 1 << (7 - y); break;
+					case 11: followers[follower].cv_slew_cmd ^= 1 << (7 - y); break;
+					case 12: followers[follower].init_cmd ^= 1 << (7 - y); break;
+					case 13: followers[follower].vol_cmd ^= 1 << (7 - y); break;
+					default: break;
+					}
 				}
 			}
 			else {
@@ -1716,6 +1725,7 @@ void handler_KriaGridKey(s32 data) {
 		else {
 			if (x == 2 && y == 7) {
 				mod_follower = false;
+				monomeFrameDirty++;
 			}
 		}
 	}
@@ -3894,11 +3904,64 @@ void handler_MPGridKey(s32 data) {
 
 	// PRESET SCREEN
 	if(preset_mode) {
-		// draw glyph
-		if(z && x>7)
-			m.glyph[y] ^= 1<<(x-8);
+		if (z) {
+			if (x == 2 && y == 7) {
+				if (follower_select) {
+					follower_select = false;
+				} else {
+					mod_follower = true;
+				}
+			}
+			if (follower_select) {
+				if (y == 0 && x <= 4) {
+					followers[follower].oct = x + 3;
+				}
+				if (y >= 2 && y <= 5) {
+					if (x == 2) {
+						follower = y - 2;
+					}
+					if (x == 4) {
+						followers[follower].track_en ^= 1 << (y - 2);
+					}
+					if (x == 7) {
+						followers[y - 2].cv_extra = !followers[y - 2].cv_extra;
+					}
+				}
+				if (x >= 8) {
+					switch (x) {
+					case  8: followers[follower].addr ^= 1 << (7 - y); break;
+					case  9: followers[follower].tr_cmd ^= 1 << (7 - y); break;
+					case 10: followers[follower].cv_cmd ^= 1 << (7 - y); break;
+					case 11: followers[follower].cv_slew_cmd ^= 1 << (7 - y); break;
+					case 12: followers[follower].init_cmd ^= 1 << (7 - y); break;
+					case 13: followers[follower].vol_cmd ^= 1 << (7 - y); break;
+					default: break;
+					}
+				}
+			}
+			else {
+				if (x > 7) {
+					k.glyph[y] ^= 1<<(x-8);
+				}
+				if (x == 2 && y >= 2 && y <= 5) {
+					if (mod_follower) {
+						follower = y - 2;
+						follower_select = true;
+					}
+					else {
+						toggle_follower(y - 2);
+					}
+				}
+			}
 
-		monomeFrameDirty++;
+			monomeFrameDirty++;
+		}
+		else {
+			if (x == 2 && y == 7) {
+				mod_follower = false;
+				monomeFrameDirty++;
+			}
+		}
 	}
 	else if(view_clock) {
 		if(z) {
@@ -5021,18 +5084,71 @@ void handler_ESGridKey(s32 data) {
 
     // preset screen
     if (preset_mode) {
-        if (!z && x == 0) {
-            if (y != preset) {
-                preset = y;
-                for (u8 i = 0; i < GRID_PRESETS; i++)
-                    e.glyph[i] = f.es_state.e[preset].glyph[i];
-            } else {
-                // flash read
-                es_load_preset();
-            }
-        } else if (z && x > 7) {
-            e.glyph[y] ^= 1 << (x - 8);
+	if (z) {
+	    if (x == 2 && y == 7) {
+	        if (follower_select) {
+		    follower_select = false;
+		} else {
+		    mod_follower = true;
+		}
+	    }
+	    if (follower_select) {
+	        if (y == 0 && x <= 4) {
+		    followers[follower].oct = x + 3;
+		}
+		if (y >= 2 && y <= 5) {
+		    if (x == 2) {
+		        follower = y - 2;
+		    }
+		    if (x == 4) {
+		        followers[follower].track_en ^= 1 << (y - 2);
+		    }
+		    if (x == 7) {
+		        followers[y - 2].cv_extra = !followers[y - 2].cv_extra;
+		    }
+		}
+		if (x >= 8) {
+		    switch (x) {
+		    case  8: followers[follower].addr ^= 1 << (7 - y); break;
+		    case  9: followers[follower].tr_cmd ^= 1 << (7 - y); break;
+		    case 10: followers[follower].cv_cmd ^= 1 << (7 - y); break;
+		    case 11: followers[follower].cv_slew_cmd ^= 1 << (7 - y); break;
+		    case 12: followers[follower].init_cmd ^= 1 << (7 - y); break;
+		    case 13: followers[follower].vol_cmd ^= 1 << (7 - y); break;
+		    default: break;
+		    }
+		}
+	    }
+	    else {
+	        if (x > 7) {
+		    e.glyph[y] ^= 1 << (x - 8);
+		}
+		if (x == 2 && y >= 2 && y <= 5) {
+		    if (mod_follower) {
+		        follower = y - 2;
+			follower_select = true;
+		    }
+		    else {
+		      toggle_follower(y - 2);
+		    }
+		}
+	    }
         }
+	else {
+	    if (x == 0) {
+	        if (y != preset) {
+		    preset = y;
+		    for (u8 i = 0; i < GRID_PRESETS; i++)
+		        e.glyph[i] = f.es_state.e[preset].glyph[i];
+		} else {
+		    // flash read
+		    es_load_preset();
+		}
+	    }
+	    if (x == 2 && y == 7) {
+	        mod_follower = false;
+	    }
+	}
 
         monomeFrameDirty++;
         return;

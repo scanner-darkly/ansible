@@ -80,6 +80,8 @@ ansible_mode_t ansible_mode;
 i2c_follower_t followers[I2C_FOLLOWER_COUNT] = {
 	{
 		.active = false,
+		.track_en = 0xF,
+		.oct = 0,
 		.addr = JF_ADDR,
 		.tr_cmd = JF_TR,
 		.cv_cmd = JF_VOX,
@@ -87,6 +89,8 @@ i2c_follower_t followers[I2C_FOLLOWER_COUNT] = {
 	},
 	{
 		.active = false,
+		.track_en = 0xF,
+		.oct = 5,
 		.addr = TELEXO_0,
 		.tr_cmd = 0x6D, // TO_ENV
 		.cv_cmd = 0x40, // TO_OSC
@@ -96,6 +100,8 @@ i2c_follower_t followers[I2C_FOLLOWER_COUNT] = {
 	},
 	{
 		.active = false,
+		.track_en = 0xF,
+		.oct = 5,
 		.addr = TELEXO_1,
 		.tr_cmd = 0x6D, // TO_ENV
 		.cv_cmd = 0x40, // TO_OSC
@@ -105,6 +111,8 @@ i2c_follower_t followers[I2C_FOLLOWER_COUNT] = {
 	},
 	{
 		.active = false,
+		.track_en = 0xF,
+		.oct = 0,
 		.addr = ER301_1,
 		.tr_cmd = 0x05, // TO_TR_PULSE -> SC.TR.P
 		.cv_cmd = 0x10, // TO_CV -> SC.CV
@@ -540,11 +548,14 @@ void update_leds(uint8_t m) {
 
 void set_tr(uint8_t n) {
 	gpio_set_gpio_pin(n);
+	uint8_t tr = n - TR1;
 	for (uint8_t i = 0; i < I2C_FOLLOWER_COUNT; i++) {
-		if (followers[i].active) {
+		bool play_follower = followers[i].active
+				  && followers[i].track_en & (1 << tr);
+		if (play_follower) {
 			uint8_t d[] = {
 				followers[i].tr_cmd,
-				n - TR1,
+				tr,
 				1,
 			};
 			i2c_master_tx(followers[i].addr, d, 3);
@@ -554,11 +565,14 @@ void set_tr(uint8_t n) {
 
 void clr_tr(uint8_t n) {
 	gpio_clr_gpio_pin(n);
+	uint8_t tr = n - TR1;
 	for (uint8_t i = 0; i < I2C_FOLLOWER_COUNT; i++) {
-		if (followers[i].active) {
+		bool play_follower = followers[i].active
+				  && followers[i].track_en & (1 << tr);
+		if (play_follower) {
 			uint8_t d[] = {
 				followers[i].tr_cmd,
-				n - TR1,
+				tr,
 				0,
 			};
 			i2c_master_tx(followers[i].addr, d, 3);
@@ -573,12 +587,15 @@ uint8_t get_tr(uint8_t n) {
 void set_cv(uint8_t n, uint16_t cv) {
 	dac_set_value(n, cv);
 	for (uint8_t i = 0; i < I2C_FOLLOWER_COUNT; i++) {
-		if (followers[i].active) {
+		bool play_follower = followers[i].active
+				  && followers[i].track_en & (1 << n);
+		if (play_follower) {
+			uint16_t cv_transposed = cv + tuning_table[i][12 * followers[i].oct];
 			uint8_t d[] = {
 				followers[i].cv_cmd,
 				n,
-				(cv + 8192) >> 8,
-				(cv + 8192) & 0xFF,
+				cv_transposed >> 8,
+				cv_transposed & 0xFF,
 				cv_extra[i] >> 8,
 				cv_extra[i] & 0xFF,
 			};
@@ -590,7 +607,10 @@ void set_cv(uint8_t n, uint16_t cv) {
 void set_cv_slew(uint8_t n, uint16_t s) {
 	dac_set_slew(n, s);
 	for (uint8_t i = 0; i < I2C_FOLLOWER_COUNT; i++) {
-		if (followers[i].active && followers[i].cv_slew_cmd > 0) {
+		bool play_follower = followers[i].active
+				  && followers[i].cv_slew_cmd > 0
+				  && followers[i].track_en & (1 << n);
+		if (play_follower) {
 			uint8_t d[] = {
 				followers[i].cv_slew_cmd,
 				n,
@@ -603,14 +623,14 @@ void set_cv_slew(uint8_t n, uint16_t s) {
 }
 
 static void follower_on(uint8_t n) {
-	if (followers[n].init_cmd > 0) {
-		for (uint8_t i = 0; i < 4; i++) {
+	for (uint8_t i = 0; i < 4; i++) {
+		bool play_follower = followers[n].active
+		  && followers[n].track_en & (1 << i);
+		if (play_follower && followers[n].init_cmd > 0) {
 			uint8_t d[] = { followers[n].init_cmd, i, 1 };
 			i2c_master_tx(followers[n].addr, d, 3);
 		}
-	}
-	if (followers[n].vol_cmd > 0) {
-		for (uint8_t i = 0; i < 4; i++) {
+		if (play_follower && followers[n].vol_cmd > 0) {
 			uint8_t d[] = { followers[n].vol_cmd, i, 8192 >> 8, 8192 & 0xFF }; // 5V
 			i2c_master_tx(followers[n].addr, d, 4);
 		}
@@ -618,14 +638,14 @@ static void follower_on(uint8_t n) {
 }
 
 static void follower_off(uint8_t n) {
-	if (followers[n].init_cmd > 0) {
-		for (uint8_t i = 0; i < 4; i++) {
+	for (uint8_t i = 0; i < 4; i++) {
+		bool play_follower = followers[n].active
+				  && followers[n].track_en & (1 << i);
+		if (play_follower && followers[n].init_cmd > 0) {
 			uint8_t d[] = { followers[n].init_cmd, i, 0 };
 			i2c_master_tx(followers[n].addr, d, 3);
 		}
-	}
-	if (followers[n].vol_cmd > 0) {
-		for (uint8_t i = 0; i < 4; i++) {
+		if (play_follower && followers[n].vol_cmd > 0) {
 			uint8_t d[] = { followers[n].vol_cmd, i, 0, 0 };
 			i2c_master_tx(followers[n].addr, d, 3);
 		}
