@@ -3142,6 +3142,9 @@ void refresh_kria_glide(void) {
 			if(i == pos[track][mGlide]) {
 				monomeLedBuffer[R6 - k.p[k.pattern].t[track].glide[i]*16 + i] += 4;
 			}
+			if(i == pos[track][mGlide]) {
+				monomeLedBuffer[R6 - k.p[k.pattern].t[track].glide[i]*16 + i] += 4;
+			}
 		}
 	}
 }
