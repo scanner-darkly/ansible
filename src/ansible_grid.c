@@ -35,6 +35,7 @@ static void preset_mode_exit(void);
 bool follower_select;
 bool mod_follower;
 uint8_t follower;
+bool kriaAltModeBlink; // flag gets flipped for the blinking
 
 u8 grid_varibrightness = 16;
 u8 key_count = 0;
@@ -115,6 +116,7 @@ softTimer_t repeatTimer[4] = {
 
 static void grid_keytimer_kria(uint8_t held_key);
 static void kria_set_note(uint8_t trackNum);
+static void preset_mode_handle_key(uint8_t x, uint8_t y, uint8_t z, uint8_t* glyph);
 static kria_modes_t ii_kr_mode_for_cmd(uint8_t cmd);
 static uint8_t ii_kr_cmd_for_mode(kria_modes_t mode);
 
@@ -255,29 +257,28 @@ void refresh_preset(void) {
 		monomeLedBuffer[preset * 16] = 11;
 	}
 
-	for (uint8_t i = 0; i < 4; i++) {
-		if (follower_select) {
-			monomeLedBuffer[2 + (2 + i)*16] = i == follower ? L1 : L0;
-			monomeLedBuffer[4 + (2 + i)*16] = (followers[follower].track_en & (1 << i)) ? L1 : L0;
-			monomeLedBuffer[7 + (2 + i)*16] = followers[i].cv_extra ? L1 : L0;
-		}
-		else {
-			monomeLedBuffer[2 + (2 + i)*16] = followers[i].active ? L1 : L0;
+	if (follower_select) {
+		for (uint8_t i = 0; i < 4; i++) {
+			monomeLedBuffer[R7 + i] = (followers[follower].track_en & (1 << i)) ? L1 : L0;
 		}
 	}
-	monomeLedBuffer[2 + R7] = mod_follower ? L1 : L0;
+	for (uint8_t i = 0; i < I2C_FOLLOWER_COUNT; i++) {
+		if (follower_select) {
+			monomeLedBuffer[5 + (2 + i)*16] = i == follower ? L1 : L0;
+		}
+		else {
+			monomeLedBuffer[5 + (2 + i)*16] = followers[i].active ? L1 : L0;
+		}
+	}
+	monomeLedBuffer[5 + R7] = mod_follower ? L1 : L0;
 
 	if (follower_select) {
-		memset(monomeLedBuffer, L0, 5);
-		monomeLedBuffer[followers[follower].oct - 3] = L1;
+		memset(monomeLedBuffer, L0, 7);
+		monomeLedBuffer[followers[follower].oct + 3] = L1;
 
-		for (uint8_t i = 0; i < 8; i++) {
-			monomeLedBuffer[i*16 + 8 ] = (followers[follower].addr & (1 << (7 - i))) ? L1 : L0;
-			monomeLedBuffer[i*16 + 9 ] = (followers[follower].tr_cmd & (1 << (7 - i))) ? L1 : L0;
-			monomeLedBuffer[i*16 + 10] = (followers[follower].cv_cmd & (1 << (7 - i))) ? L1 : L0;
-			monomeLedBuffer[i*16 + 11] = (followers[follower].cv_slew_cmd & (1 << (7 - i))) ? L1 : L0;
-			monomeLedBuffer[i*16 + 12] = (followers[follower].init_cmd & (1 << (7 - i))) ? L1 : L0;
-			monomeLedBuffer[i*16 + 13] = (followers[follower].vol_cmd & (1 << (7 - i))) ? L1 : L0;
+		if (followers[follower].mode_ct > 1) {
+			memset(monomeLedBuffer + 13, L0, followers[follower].mode_ct);
+			monomeLedBuffer[13 + followers[follower].active_mode] = L1;
 		}
 	}
 	else {
@@ -563,7 +564,6 @@ static void kria_rpt_off(void* o);
 static void kria_alt_mode_blink(void* o);
 static void kria_set_alt_blink_timer(kria_modes_t mode);
 softTimer_t altBlinkTimer = { .next = NULL, .prev = NULL };
-bool kriaAltModeBlink; // flag gets flipped for the blinking
 bool k_mode_is_alt = false;
 
 bool kria_next_step(uint8_t t, uint8_t p);
@@ -919,7 +919,7 @@ void clock_kria_note(kria_track* track, uint8_t trackNum) {
 		f32 clock_scale = (clock_deltas[trackNum] * track->tmul[mTr]) / (f32)384.0;
 		f32 unscaled = (track->dur[pos[trackNum][mDur]]+1) * (track->dur_mul<<2);
 		dur[trackNum] = (u16)(unscaled * clock_scale);
-		cv_extra[trackNum] = (u16)unscaled << 5;
+		aux_param[0][trackNum] = (int)unscaled;
 	}
 	if(kria_next_step(trackNum, mOct)) {
 		oct[trackNum] = sum_clip(track->octshift, track->oct[pos[trackNum][mOct]], 5);
@@ -1460,11 +1460,22 @@ void ii_kria(uint8_t *d, uint8_t l) {
 			break;
 		}
 		case II_KR_DIR:
-			if (l >= 3 && d[2] <= krDirRandom) {
+			if ( d[1] < 0
+			  || d[1] > KRIA_NUM_TRACKS
+			  || d[2] < 0
+			  || d[2] > krDirRandom) break;
+			if ( d[1] == 0 ) {
+				for ( int i=0; i<KRIA_NUM_TRACKS; i++) {
+					k.p[k.pattern].t[i].direction = d[2];
+				}
+			}
+			else {
 				k.p[k.pattern].t[d[1]-1].direction = d[2];
 			}
 			break;
 		case II_KR_DIR + II_GET:
+			if ( d[1] <= 0
+			  || d[1] > KRIA_NUM_TRACKS) break;
 			if (l >= 2) {
 				ii_tx_queue(k.p[k.pattern].t[d[1] - 1].direction);
 			}
@@ -1582,6 +1593,64 @@ static void kria_set_tmul(uint8_t track, kria_modes_t mode, uint8_t new_tmul) {
 	}
 }
 
+
+static void preset_mode_handle_key(u8 x, u8 y, u8 z, u8* glyph) {
+	if (z) {
+		if (x == 5 && y == 7) {
+			if (follower_select) {
+				follower_select = false;
+			} else {
+				mod_follower = true;
+			}
+		}
+		if (follower_select) {
+			if (y == 0) {
+				if (x <= 6) {
+					followers[follower].oct = x - 3;
+					followers[follower].octave(&followers[follower], 0, followers[follower].oct);
+				}
+				if (followers[follower].mode_ct > 1
+				 && x >= 13
+				 && x <= (13 + followers[follower].mode_ct)) {
+					followers[follower].mode(&followers[follower], 0, x - 13);
+				}
+			}
+			if (y >= 2 && y <= 5) {
+				if (x == 5) {
+					follower = y - 2;
+				}
+			}
+			if (y == 7) {
+				if (x <= 3) {
+					followers[follower].track_en ^= 1 << x;
+				}
+			}
+		}
+		else {
+			if (x > 7) {
+				glyph[y] ^= 1<<(x-8);
+			}
+			if (x == 5 && y >= 2 && y <= 5) {
+				if (mod_follower) {
+					follower = y - 2;
+					follower_select = true;
+				}
+				else {
+					toggle_follower(y - 2);
+				}
+			}
+		}
+
+		monomeFrameDirty++;
+	}
+	else {
+		if (x == 5 && y == 7) {
+			mod_follower = false;
+			monomeFrameDirty++;
+		}
+	}
+}
+
 void handler_KriaGridKey(s32 data) {
 	u8 x, y, z, index, i1, found;
 
@@ -1668,65 +1737,7 @@ void handler_KriaGridKey(s32 data) {
 
 	// PRESET SCREEN
 	if(preset_mode) {
-		if(z) {
-			if (x == 2 && y == 7) {
-				if (follower_select) {
-					follower_select = false;
-				} else {
-					mod_follower = true;
-				}
-			}
-			if (follower_select) {
-				if (y == 0 && x <= 4) {
-					followers[follower].oct = x + 3;
-				}
-				if (y >= 2 && y <= 5) {
-					if (x == 2) {
-						follower = y - 2;
-					}
-					if (x == 4) {
-						followers[follower].track_en ^= 1 << (y - 2);
-					}
-					if (x == 7) {
-						followers[y - 2].cv_extra = !followers[y - 2].cv_extra;
-					}
-				}
-				if (x >= 8) {
-					switch (x) {
-					case  8: followers[follower].addr ^= 1 << (7 - y); break;
-					case  9: followers[follower].tr_cmd ^= 1 << (7 - y); break;
-					case 10: followers[follower].cv_cmd ^= 1 << (7 - y); break;
-					case 11: followers[follower].cv_slew_cmd ^= 1 << (7 - y); break;
-					case 12: followers[follower].init_cmd ^= 1 << (7 - y); break;
-					case 13: followers[follower].vol_cmd ^= 1 << (7 - y); break;
-					default: break;
-					}
-				}
-			}
-			else {
-				// glyph magic
-				if (x > 7) {
-					k.glyph[y] ^= 1<<(x-8);
-				}
-				if (x == 2 && y >= 2 && y <= 5) {
-					if (mod_follower) {
-						follower = y - 2;
-						follower_select = true;
-					}
-					else {
-						toggle_follower(y - 2);
-					}
-				}
-			}
-
-			monomeFrameDirty++;
-		}
-		else {
-			if (x == 2 && y == 7) {
-				mod_follower = false;
-				monomeFrameDirty++;
-			}
-		}
+		preset_mode_handle_key(x, y, z, k.glyph);
 	}
 	else if(view_clock) {
 		if(z) {
@@ -3840,64 +3851,7 @@ void handler_MPGridKey(s32 data) {
 
 	// PRESET SCREEN
 	if(preset_mode) {
-		if (z) {
-			if (x == 2 && y == 7) {
-				if (follower_select) {
-					follower_select = false;
-				} else {
-					mod_follower = true;
-				}
-			}
-			if (follower_select) {
-				if (y == 0 && x <= 4) {
-					followers[follower].oct = x + 3;
-				}
-				if (y >= 2 && y <= 5) {
-					if (x == 2) {
-						follower = y - 2;
-					}
-					if (x == 4) {
-						followers[follower].track_en ^= 1 << (y - 2);
-					}
-					if (x == 7) {
-						followers[y - 2].cv_extra = !followers[y - 2].cv_extra;
-					}
-				}
-				if (x >= 8) {
-					switch (x) {
-					case  8: followers[follower].addr ^= 1 << (7 - y); break;
-					case  9: followers[follower].tr_cmd ^= 1 << (7 - y); break;
-					case 10: followers[follower].cv_cmd ^= 1 << (7 - y); break;
-					case 11: followers[follower].cv_slew_cmd ^= 1 << (7 - y); break;
-					case 12: followers[follower].init_cmd ^= 1 << (7 - y); break;
-					case 13: followers[follower].vol_cmd ^= 1 << (7 - y); break;
-					default: break;
-					}
-				}
-			}
-			else {
-				if (x > 7) {
-					k.glyph[y] ^= 1<<(x-8);
-				}
-				if (x == 2 && y >= 2 && y <= 5) {
-					if (mod_follower) {
-						follower = y - 2;
-						follower_select = true;
-					}
-					else {
-						toggle_follower(y - 2);
-					}
-				}
-			}
-
-			monomeFrameDirty++;
-		}
-		else {
-			if (x == 2 && y == 7) {
-				mod_follower = false;
-				monomeFrameDirty++;
-			}
-		}
+		preset_mode_handle_key(x, y, z, m.glyph);
 	}
 	else if(view_clock) {
 		if(z) {
@@ -5020,57 +4974,8 @@ void handler_ESGridKey(s32 data) {
 
     // preset screen
     if (preset_mode) {
-	if (z) {
-	    if (x == 2 && y == 7) {
-	        if (follower_select) {
-		    follower_select = false;
-		} else {
-		    mod_follower = true;
-		}
-	    }
-	    if (follower_select) {
-	        if (y == 0 && x <= 4) {
-		    followers[follower].oct = x + 3;
-		}
-		if (y >= 2 && y <= 5) {
-		    if (x == 2) {
-		        follower = y - 2;
-		    }
-		    if (x == 4) {
-		        followers[follower].track_en ^= 1 << (y - 2);
-		    }
-		    if (x == 7) {
-		        followers[y - 2].cv_extra = !followers[y - 2].cv_extra;
-		    }
-		}
-		if (x >= 8) {
-		    switch (x) {
-		    case  8: followers[follower].addr ^= 1 << (7 - y); break;
-		    case  9: followers[follower].tr_cmd ^= 1 << (7 - y); break;
-		    case 10: followers[follower].cv_cmd ^= 1 << (7 - y); break;
-		    case 11: followers[follower].cv_slew_cmd ^= 1 << (7 - y); break;
-		    case 12: followers[follower].init_cmd ^= 1 << (7 - y); break;
-		    case 13: followers[follower].vol_cmd ^= 1 << (7 - y); break;
-		    default: break;
-		    }
-		}
-	    }
-	    else {
-	        if (x > 7) {
-		    e.glyph[y] ^= 1 << (x - 8);
-		}
-		if (x == 2 && y >= 2 && y <= 5) {
-		    if (mod_follower) {
-		        follower = y - 2;
-			follower_select = true;
-		    }
-		    else {
-		      toggle_follower(y - 2);
-		    }
-		}
-	    }
-        }
-	else {
+        preset_mode_handle_key(x, y, z, e.glyph);
+        if (z == 0) {
 	    if (x == 0) {
 	        if (y != preset) {
 		    preset = y;
@@ -5080,9 +4985,6 @@ void handler_ESGridKey(s32 data) {
 		    // flash read
 		    es_load_preset();
 		}
-	    }
-	    if (x == 2 && y == 7) {
-	        mod_follower = false;
 	    }
 	}
 

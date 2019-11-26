@@ -65,6 +65,7 @@ usb flash
 #include "ansible_midi.h"
 #include "ansible_tt.h"
 #include "ansible_usb_disk.h"
+#include "ansible_ii_leader.h"
 
 
 #define FIRSTRUN_KEY 0x22
@@ -77,50 +78,9 @@ __attribute__((__section__(".flash_nvram")))
 nvram_data_t f;
 
 ansible_mode_t ansible_mode;
-i2c_follower_t followers[I2C_FOLLOWER_COUNT] = {
-	{
-		.active = false,
-		.track_en = 0xF,
-		.oct = 0,
-		.addr = JF_ADDR,
-		.tr_cmd = JF_TR,
-		.cv_cmd = JF_VOX,
-		.cv_extra = true,
-	},
-	{
-		.active = false,
-		.track_en = 0xF,
-		.oct = 5,
-		.addr = TELEXO_0,
-		.tr_cmd = 0x6D, // TO_ENV
-		.cv_cmd = 0x40, // TO_OSC
-		.cv_slew_cmd = 0x4F, // TO_OSC_SCLEW
-		.init_cmd = 0x60, // TO_ENV_ACT
-		.vol_cmd = 0x10, // TO_CV
-	},
-	{
-		.active = false,
-		.track_en = 0xF,
-		.oct = 5,
-		.addr = TELEXO_1,
-		.tr_cmd = 0x6D, // TO_ENV
-		.cv_cmd = 0x40, // TO_OSC
-		.cv_slew_cmd = 0x4F, // TO_OSC_SCLEW
-		.init_cmd = 0x60, // TO_ENV_ACT
-		.vol_cmd = 0x10, // TO_CV
-	},
-	{
-		.active = false,
-		.track_en = 0xF,
-		.oct = 0,
-		.addr = ER301_1,
-		.tr_cmd = 0x00, // TO_TR -> SC.TR
-		.cv_cmd = 0x10, // TO_CV -> SC.CV
-		.cv_slew_cmd = 0x12, // TO_CV_SLEW -> SC.CV.SLEW
-	},
-};
+
 bool leader_mode = false;
-uint16_t cv_extra[4] = { 8192, 8192, 8192, 8192 };
+uint16_t aux_param[2][4] = { { 0 } };
 
 ////////////////////////////////////////////////////////////////////////////////
 // prototypes
@@ -553,12 +513,7 @@ void set_tr(uint8_t n) {
 		bool play_follower = followers[i].active
 				  && followers[i].track_en & (1 << tr);
 		if (play_follower) {
-			uint8_t d[] = {
-				followers[i].tr_cmd,
-				tr,
-				1,
-			};
-			i2c_master_tx(followers[i].addr, d, 3);
+			followers[i].tr(&followers[i], tr, 1);
 		}
 	}
 }
@@ -570,12 +525,7 @@ void clr_tr(uint8_t n) {
 		bool play_follower = followers[i].active
 				  && followers[i].track_en & (1 << tr);
 		if (play_follower) {
-			uint8_t d[] = {
-				followers[i].tr_cmd,
-				tr,
-				0,
-			};
-			i2c_master_tx(followers[i].addr, d, 3);
+			followers[i].tr(&followers[i], tr, 0);
 		}
 	}
 }
@@ -590,16 +540,8 @@ void set_cv_note(uint8_t n, uint16_t note) {
 		bool play_follower = followers[i].active
 				  && followers[i].track_en & (1 << n);
 		if (play_follower) {
-			uint16_t cv_transposed = tuning_table[i][12 * followers[i].oct + note];
-			uint8_t d[] = {
-				followers[i].cv_cmd,
-				n,
-				cv_transposed >> 8,
-				cv_transposed & 0xFF,
-				cv_extra[i] >> 8,
-				cv_extra[i] & 0xFF,
-			};
-			i2c_master_tx(followers[i].addr, d, followers[i].cv_extra ? 6 : 4);
+			uint16_t cv_transposed = tuning_table[i][12 + note];
+			followers[i].cv(&followers[i], n, cv_transposed);
 		}
 	}
 }
@@ -608,16 +550,9 @@ void set_cv_slew(uint8_t n, uint16_t s) {
 	dac_set_slew(n, s);
 	for (uint8_t i = 0; i < I2C_FOLLOWER_COUNT; i++) {
 		bool play_follower = followers[i].active
-				  && followers[i].cv_slew_cmd > 0
 				  && followers[i].track_en & (1 << n);
 		if (play_follower) {
-			uint8_t d[] = {
-				followers[i].cv_slew_cmd,
-				n,
-				s >> 8,
-				s & 0xFF,
-			};
-			i2c_master_tx(followers[i].addr, d, 4);
+			followers[i].slew(&followers[i], n, s);
 		}
 	}
 }
@@ -626,13 +561,9 @@ static void follower_on(uint8_t n) {
 	for (uint8_t i = 0; i < 4; i++) {
 		bool play_follower = followers[n].active
 		  && followers[n].track_en & (1 << i);
-		if (play_follower && followers[n].init_cmd > 0) {
-			uint8_t d[] = { followers[n].init_cmd, i, 1 };
-			i2c_master_tx(followers[n].addr, d, 3);
-		}
-		if (play_follower && followers[n].vol_cmd > 0) {
-			uint8_t d[] = { followers[n].vol_cmd, i, 8192 >> 8, 8192 & 0xFF }; // 5V
-			i2c_master_tx(followers[n].addr, d, 4);
+		if (play_follower) {
+			followers[n].mode(&followers[n], i, followers[n].active_mode);
+			followers[n].octave(&followers[n], 0, followers[n].oct);
 		}
 	}
 }
@@ -641,13 +572,8 @@ static void follower_off(uint8_t n) {
 	for (uint8_t i = 0; i < 4; i++) {
 		bool play_follower = followers[n].active
 				  && followers[n].track_en & (1 << i);
-		if (play_follower && followers[n].init_cmd > 0) {
-			uint8_t d[] = { followers[n].init_cmd, i, 0 };
-			i2c_master_tx(followers[n].addr, d, 3);
-		}
-		if (play_follower && followers[n].vol_cmd > 0) {
-			uint8_t d[] = { followers[n].vol_cmd, i, 0, 0 };
-			i2c_master_tx(followers[n].addr, d, 3);
+		if (play_follower) {
+			followers[n].init(&followers[n], i, 0);
 		}
 	}
 }
