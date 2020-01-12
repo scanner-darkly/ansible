@@ -2544,10 +2544,21 @@ void handler_KriaGridKey(s32 data) {
 						}
 					}
 					else {
+						int scale_diff = scale_data[k.p[k.pattern].scale][6 - y] + 8;
+						int adj = x - scale_diff;
 						uint8_t i;
 						for (i = 0; i < key_count; i++) {
-							if (held_keys[i] == 16*y + scale_data[k.p[k.pattern].scale][6 - y] + 8) {
-								scale_adj[6 - y] = x - 8 - scale_data[k.p[k.pattern].scale][6 - y];
+							if (held_keys[i] == R7 + 14 && y != 0) {
+								int change = scale_data[k.p[k.pattern].scale][6-y+1] - adj;
+								if(change<0) change = 0;
+								if(change>7) change = 7;
+								scale_data[k.p[k.pattern].scale][6-y+1] = change;
+
+								i = key_count;
+								break;
+							}
+							if (held_keys[i] == 16*y + scale_diff) {
+								scale_adj[6 - y] = adj;
 								break;
 							}
 						}
