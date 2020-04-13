@@ -41,7 +41,6 @@ u8 grid_varibrightness = 16;
 u8 key_count = 0;
 u8 held_keys[MAX_HELD_KEYS];
 u8 key_times[128];
-u8 grid_varibrightness;
 
 bool clock_external;
 bool view_clock;
@@ -699,15 +698,7 @@ void resume_kria() {
 		last_ticks[i] = get_ticks();
 	}
 
-	set_cv_slew(0,0);
-	set_cv_slew(1,0);
-	set_cv_slew(2,0);
-	set_cv_slew(3,0);
-
-	clr_tr(TR1);
-	clr_tr(TR2);
-	clr_tr(TR3);
-	clr_tr(TR4);
+	reset_outputs();
 
 	monomeFrameDirty++;
 }
@@ -2554,21 +2545,10 @@ void handler_KriaGridKey(s32 data) {
 						}
 					}
 					else {
-						int scale_diff = scale_data[k.p[k.pattern].scale][6 - y] + 8;
-						int adj = x - scale_diff;
 						uint8_t i;
 						for (i = 0; i < key_count; i++) {
-							if (held_keys[i] == R7 + 14 && y != 0) {
-								int change = scale_data[k.p[k.pattern].scale][6-y+1] - adj;
-								if(change<0) change = 0;
-								if(change>7) change = 7;
-								scale_data[k.p[k.pattern].scale][6-y+1] = change;
-
-								i = key_count;
-								break;
-							}
-							if (held_keys[i] == 16*y + scale_diff) {
-								scale_adj[6 - y] = adj;
+							if (held_keys[i] == 16*y + scale_data[k.p[k.pattern].scale][6 - y] + 8) {
+								scale_adj[6 - y] = x - 8 - scale_data[k.p[k.pattern].scale][6 - y];
 								break;
 							}
 						}
@@ -3179,9 +3159,6 @@ void refresh_kria_glide(void) {
 			if(i == pos[track][mGlide]) {
 				monomeLedBuffer[R6 - k.p[k.pattern].t[track].glide[i]*16 + i] += 4;
 			}
-			if(i == pos[track][mGlide]) {
-				monomeLedBuffer[R6 - k.p[k.pattern].t[track].glide[i]*16 + i] += 4;
-			}
 		}
 	}
 }
@@ -3448,15 +3425,7 @@ void resume_mp() {
 	else
 		clock = &clock_mp;
 
-	set_cv_slew(0,0);
-	set_cv_slew(1,0);
-	set_cv_slew(2,0);
-	set_cv_slew(3,0);
-
-	clr_tr(TR1);
-	clr_tr(TR2);
-	clr_tr(TR3);
-	clr_tr(TR4);
+	reset_outputs();
 
 	monomeFrameDirty++;
 }
@@ -4882,9 +4851,8 @@ void resume_es(void) {
     clock_external = !gpio_get_pin_value(B10);
     clock = &clock_null;
 
+    reset_outputs();
     for (u8 i = 0; i < 4; i++) {
-        set_cv_slew(i, 0);
-        clr_tr(TR1 + i);
         es_notes[i].active = 0;
     }
 
@@ -5535,9 +5503,9 @@ void ii_es(uint8_t *data, uint8_t l) {
             }
             monomeFrameDirty++;
             break;
+
         default:
-            ii_grid(data, l);
-            ii_ansible(data, l);
-            break;
+	    ii_grid(data, l);
+	    ii_ansible(data, l);
     }
 }
