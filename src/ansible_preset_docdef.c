@@ -92,7 +92,7 @@ json_docdef_t ansible_meta_docdefs[] = {
 				.write = json_write_object,
 				.state = &ansible_app_object_state[0],
 				.params = &((json_read_object_params_t) {
-					.docdef_ct = 7,
+					.docdef_ct = 4,
 					.docdefs = ((json_docdef_t[]) {
 						{
 							.name = "active",
@@ -293,7 +293,7 @@ json_docdef_t ansible_app_docdefs[] = {
 				{
 					.name = "note_div_sync",
 					.read = json_read_scalar,
-					.write = json_write_number,
+					.write = json_write_bool,
 					.params = &((json_read_scalar_params_t) {
 						.dst_size = sizeof_field(nvram_data_t, kria_state.note_div_sync),
 						.dst_offset = offsetof(nvram_data_t, kria_state.note_div_sync),
