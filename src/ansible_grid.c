@@ -147,7 +147,7 @@ void set_mode_grid() {
 		app_event_handlers[kEventMonomeRefresh] = &handler_KriaRefresh;
 		clock = &clock_kria;
 		clock_set(clock_period);
-		if (!leader_mode) init_i2c_slave(II_KR_ADDR);
+		if (!leader_mode) init_i2c_follower(II_KR_ADDR);
 		process_ii = &ii_kria;
 		resume_kria();
 		update_leds(1);
@@ -161,7 +161,7 @@ void set_mode_grid() {
 		app_event_handlers[kEventMonomeRefresh] = &handler_MPRefresh;
 		clock = &clock_mp;
 		clock_set(clock_period);
-		if (!leader_mode) init_i2c_slave(II_MP_ADDR);
+		if (!leader_mode) init_i2c_follower(II_MP_ADDR);
 		process_ii = &ii_mp;
 		resume_mp();
 		update_leds(2);
@@ -175,7 +175,7 @@ void set_mode_grid() {
 		app_event_handlers[kEventMonomeRefresh] = &handler_ESRefresh;
 		clock = &clock_null;
 		clock_set(clock_period);
-		if (!leader_mode) init_i2c_slave(ES);
+		if (!leader_mode) init_i2c_follower(ES);
 		process_ii = &ii_es;
 		resume_es();
 		update_leds(3);
@@ -189,8 +189,10 @@ void set_mode_grid() {
 	// 	app_event_handlers[kEventFrontLong] = &handler_GridFrontLong;
 	// }
 
+	ii_follower_pause();
 	flashc_memset32((void*)&(f.state.none_mode), ansible_mode, 4, true);
 	flashc_memset32((void*)&(f.state.grid_mode), ansible_mode, 4, true);
+	ii_follower_resume();
 }
 
 static void preset_mode_exit(void) {
@@ -378,6 +380,8 @@ void grid_keytimer(void) {
 
 					// WRITE PRESET
 
+					ii_follower_pause();
+
 					switch (ansible_mode) {
 					case mGridMP:
 						flashc_memset8((void*)&(f.mp_state.preset), preset, 1, true);
@@ -421,6 +425,8 @@ void grid_keytimer(void) {
 					flashc_memset32((void*)&(f.kria_state.clock_period), clock_period, 4, true);
 					flashc_memset32((void*)&(f.kria_state.sync_mode), kria_sync_mode, sizeof(kria_sync_mode), true);
 
+					ii_follower_resume();
+
 					monomeFrameDirty++;
 				}
 			}
@@ -442,18 +448,24 @@ void grid_keytimer(void) {
 					if (x == 13) {
 						// apply fixed offset and save
 						fit_tuning(0);
+						ii_follower_pause();
 						flashc_memcpy((void*)f.tuning_table, tuning_table, sizeof(tuning_table), true);
+						ii_follower_resume();
 						restore_grid_tuning();
 					}
 					if (x == 14) {
 						// interpolate octaves and save
 						fit_tuning(1);
+						ii_follower_pause();
 						flashc_memcpy((void*)f.tuning_table, tuning_table, sizeof(tuning_table), true);
+						ii_follower_resume();
 						restore_grid_tuning();
 					}
 					if (x == 15) {
 						// save all tuning entries as-is
+						ii_follower_pause();
 						flashc_memcpy((void *)f.tuning_table, tuning_table, sizeof(tuning_table), true);
+						ii_follower_resume();
 						restore_grid_tuning();
 					}
 				}
